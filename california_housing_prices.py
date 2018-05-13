@@ -10,8 +10,10 @@ from sklearn.base import TransformerMixin, BaseEstimator, clone
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import Imputer, StandardScaler, OneHotEncoder
 from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeRegressor 
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error 
+from sklearn.model_selection import cross_val_score
 
 class StringIndexer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
@@ -254,11 +256,42 @@ predictions = linreg.predict(full_output)
 linmse = mean_squared_error(train_target, predictions) 
 linrmse = np.sqrt(linmse)
 print linrmse
-dectree =  DecisionTreeRegressor()
-dectree.fit(full_output, train_target)
-predictions2 = dectree.predict(full_output)
+dectreereg =  DecisionTreeRegressor()
+dectreereg.fit(full_output, train_target)
+predictions2 = dectreereg.predict(full_output)
 dectreemse = mean_squared_error(train_target, predictions2) 
 dectreermse = np.sqrt(dectreemse)
 print dectreermse
 
 
+#cross validation for the two models
+linscores = cross_val_score(linreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+linrmse_scores = np.sqrt(-linscores)
+
+print linrmse_scores
+print linrmse_scores.mean()
+print linrmse_scores.std()
+
+
+dectreescores = cross_val_score(dectreereg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+dectreermse_scores = np.sqrt(-dectreescores)
+
+print dectreermse_scores
+print dectreermse_scores.mean()
+print dectreermse_scores.std()
+
+
+#let us try to not overfit as much and try a RandomForest regression
+rndforestreg =  RandomForestRegressor()
+rndforestreg.fit(full_output, train_target)
+predictions3 = rndforestreg.predict(full_output)
+rndforestmse = mean_squared_error(train_target, predictions3)
+rndforestrmse = np.sqrt(rndforestmse)
+print rndforestrmse
+
+rndforestscores = cross_val_score(rndforestreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+rndforestrmse_scores = np.sqrt(-rndforestscores)
+
+print rndforestrmse_scores
+print rndforestrmse_scores.mean()
+print rndforestrmse_scores.std()
