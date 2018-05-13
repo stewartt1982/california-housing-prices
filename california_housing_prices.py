@@ -7,6 +7,21 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.base import TransformerMixin, BaseEstimator, clone
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import Imputer, StandardScaler, OneHotEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor 
+from sklearn.metrics import mean_squared_error 
+
+class StringIndexer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X):
+        assert isinstance(X, pd.DataFrame)
+        return X.apply(lambda s: s.cat.codes.replace(
+            {-1: len(s.cat.categories)}
+))
+
 
 class SelectColumnsTransformer(BaseEstimator, TransformerMixin):
     """ A DataFrame transformer that provides column selection
@@ -63,7 +78,18 @@ class TypeSelector(BaseEstimator, TransformerMixin):
         #assert instance(X, pd.DataFrame)
         return X.select_dtypes(include=[self.datatype]).copy()
 
+class AttributeDivider(BaseEstimator, TransformerMixin):
+    def __init__(self, num_index, denom_index):
+        self.num_index = num_index
+        self.denom_index = denom_index
 
+    def transform(self, X):
+        ratio =  X[:,self.num_index]/X[:,self.denom_index]
+        return np.c_[X,ratio]
+    
+    def fit(self,X, y=None):
+        return self
+    
 #function to fet the data from the passed URL
 def fetch_data(url="",path=""):
     if not os.path.isdir(path):
@@ -92,7 +118,9 @@ HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
 #fetch the data from the remote url
 fetch_data(HOUSING_URL,"input")
 #load the data into a dataframe
-data = load_data_csv("input","housing.csv")
+data_all = load_data_csv("input","housing.csv")
+data=data_all.copy()
+
 
 #lets do some basic checks on the data
 print data.head()
@@ -167,7 +195,70 @@ for set in (train_set_rnd, test_set_rnd,train_set_strat,test_set_strat):
 #Scale data
 #Aplly function, such as log, to data with long tails
 
+data_all["ocean_proximity"]=data_all["ocean_proximity"].astype('category')
+data_all["income_cat"] = np.ceil(data_all["median_income"] / 1.5)
+data_all["income_cat"].where(data_all["income_cat"] < 5, 5.0, inplace=True)
+split = StratifiedShuffleSplit(n_splits=1,test_size=0.2,random_state=13)
+for train_index_strat2, test_index_strat2 in split.split(data_all, data_all["income_cat"]):
+    train_set_strat2 = data_all.loc[train_index_strat2]
+    test_set_strat2 = data_all.loc[test_index_strat2]
+for set in (train_set_strat2, test_set_strat2):
+    set.drop(["income_cat"], axis=1, inplace=True) 
+
 #drop the target
-train_set = train_set_strat.drop("median_house_value",axis=1)
+train_set = train_set_strat2.drop("median_house_value",axis=1)
 #save the target
-train_target = train_set_strat["median_house_value"].copy()
+train_target = train_set_strat2["median_house_value"].copy()
+print train_set
+
+#pipeline 1.
+#Select features which are numerical and impute missing values by median
+#columns for attributes
+total_rooms = train_set.columns.get_loc("total_rooms")
+households  = train_set.columns.get_loc("households")
+total_bedrooms = train_set.columns.get_loc("total_bedrooms")
+population = train_set.columns.get_loc("population")
+
+NumPipeline = Pipeline([
+    ('numerical',TypeSelector(np.number)),
+    ('imputer',Imputer(strategy='median')),
+    ('attrib_divider1',AttributeDivider(total_rooms,households)),
+    ('attrib_divider2',AttributeDivider(total_bedrooms,total_rooms)),
+    ('attrib_divider3',AttributeDivider(population,households)),
+#    ('std_scaler',StandardScaler())
+])
+
+
+
+#pipeline 2.
+#Select categorical features and convert them to onehotencodered numberical
+CatPipeline = Pipeline([
+    ('categoricals',TypeSelector('category')),
+    ('stringindexer',StringIndexer()),
+    ('cat_encoder', OneHotEncoder(sparse=False))
+])
+
+
+
+FullPipeline = FeatureUnion(transformer_list=[
+    ("num_pipeline", NumPipeline),
+    ("cat_pipeline", CatPipeline)
+]) 
+
+full_output = FullPipeline.fit_transform(train_set)
+
+#Lets start off by training a linear regression model
+linreg = LinearRegression()
+linreg.fit(full_output, train_target)
+predictions = linreg.predict(full_output)
+linmse = mean_squared_error(train_target, predictions) 
+linrmse = np.sqrt(linmse)
+print linrmse
+dectree =  DecisionTreeRegressor()
+dectree.fit(full_output, train_target)
+predictions2 = dectree.predict(full_output)
+dectreemse = mean_squared_error(train_target, predictions2) 
+dectreermse = np.sqrt(dectreemse)
+print dectreermse
+
+
