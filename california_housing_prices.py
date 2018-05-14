@@ -13,7 +13,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error 
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score,GridSearchCV
+from sklearn.decomposition import PCA
+from sklearn.svm import SVR
 
 class StringIndexer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
@@ -121,72 +123,6 @@ HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
 fetch_data(HOUSING_URL,"input")
 #load the data into a dataframe
 data_all = load_data_csv("input","housing.csv")
-data=data_all.copy()
-
-
-#lets do some basic checks on the data
-print data.head()
-print data.info()
-print data.describe()
-#ocean_proximity is not numerical. Later we will use a pipeline to deal
-#with this categorical variable
-print data['ocean_proximity'].value_counts()
-
-data.hist(bins=50,figsize=(20,15))
-plt.savefig('output/hist.pdf')
-plt.clf()
-data.plot(kind="scatter",x='longitude',y='latitude',alpha=0.4,
-               c="median_house_value",cmap=plt.get_cmap("jet"),colorbar=True)
-plt.savefig('output/long_lat.pdf')
-plt.clf()
-corr_matrix = data.corr()
-print corr_matrix["median_house_value"].sort_values(ascending=False)
-
-data.plot(kind="scatter", x="median_income", y="median_house_value",             alpha=0.1)
-plt.savefig("housevalue_vs_medianincome.pdf")
-plt.clf()
-#create 3 new variables
-data["rooms_per_household"] = data["total_rooms"]/data["households"]
-data["bedrooms_per_room"] = data["total_bedrooms"]/data["total_rooms"]
-data["population_per_household"]=data["population"]/data["households"]
-
-corr_matrix = data.corr()
-print corr_matrix["median_house_value"].sort_values(ascending=False)
-#bedrooms_per_room seems pretty good
-
-#Let us now investigate spliting the dataset randomly and using median_house_price
-#and doing stratified sampling
-
-
-#Now with stratified sampling
-#The bulk of the housing prices are under 5.0 ... group housing prices over 5.0 with 5
-data["income_cat"] = np.ceil(data["median_income"] / 1.5)
-data["income_cat"].where(data["income_cat"] < 5, 5.0, inplace=True) 
-data["income_cat"].hist()
-plt.savefig("median_house_price_cat.pdf")
-plt.clf()
-
-#create a split for a train and test set with random selection
-train_set_rnd,test_set_rnd = train_test_split(data, test_size=0.2,random_state=13)
-
-split = StratifiedShuffleSplit(n_splits=1,test_size=0.2,random_state=13)
-for train_index_strat, test_index_strat in split.split(data, data["income_cat"]):
-    train_set_strat = data.loc[train_index_strat]
-    test_set_strat = data.loc[test_index_strat]
-
-
-train_set_strat["income_cat"].hist()
-test_set_strat["income_cat"].hist()
-plt.savefig("strat_income_cat.pdf")
-plt.clf()
-train_set_rnd["income_cat"].hist()
-test_set_rnd["income_cat"].hist()
-plt.savefig("rnd_income_cat.pdf")
-plt.clf()
-
-#Now we will drop the income_cat variables
-for set in (train_set_rnd, test_set_rnd,train_set_strat,test_set_strat):
-    set.drop(["income_cat"], axis=1, inplace=True) 
 
 #We will now setup the pipeline to deal with the daa and
 #prepare it for use
@@ -248,6 +184,45 @@ FullPipeline = FeatureUnion(transformer_list=[
 ]) 
 
 full_output = FullPipeline.fit_transform(train_set)
+
+
+#Now that we have the full provessed data we want to train a number of different models
+#using either GridSearchCV or RandomSearchCV to optimise the hyper-parameters
+#This is a simple, mall dataset so lets try both some quick simple estimators
+#along with more complicated ones ie. slower
+#Additionally lets try using DCA for dimensionality reduction for fun!
+#Algo to be used:
+#Linear Regression
+#DecisionTree
+#RandomForest
+#SVR
+#GradientBoostingTree
+#create pipelines
+#LinearRegression
+pipe_LR = Pipeline([
+    ('reg', LinearRegression())
+])
+param_grid = [
+    {
+        'reg': [LinearRegression()]
+    },
+    {
+        'reg': [DecisionTreeRegressor()],
+        "reg__min_samples_split": [2, 10, 20],
+        "reg__max_depth": [None, 2, 5, 10],
+        "reg__min_samples_leaf": [1, 5, 10],
+        "reg__max_leaf_nodes": [None, 5, 10, 20],
+    },
+    {
+        'reg': [RandomForestRegressor()],
+        'reg__bootstrap': [True, False],
+        'reg__n_estimators': [3, 10, 30],
+        'reg__max_features': [2, 4, 6, 8]
+    }
+]
+
+grid = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid,verbose=2)
+grid.fit(full_output,train_target)
 
 #Lets start off by training a linear regression model
 linreg = LinearRegression()
