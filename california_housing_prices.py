@@ -16,6 +16,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import cross_val_score,GridSearchCV
 from sklearn.decomposition import PCA
 from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error
 
 class StringIndexer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
@@ -115,6 +116,10 @@ def load_data_csv(path="",file=""):
     csv_path = os.path.join(path,file)
     return pd.read_csv(csv_path)
 
+def print_gridsearch_cv(gridsearch,name="estimator"):
+    print "Best Results: ",name,gridsearch.cv_results_['params'][gridsearch.best_index_]
+    print "Best Score: ",name, np.sqrt(-gridsearch.best_score_)
+    
 DOWNLOAD_ROOT = "https://raw.githubusercontent.com/ageron/handson-ml/master/"
 HOUSING_PATH = "datasets/housing"
 HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
@@ -145,9 +150,10 @@ for set in (train_set_strat2, test_set_strat2):
 
 #drop the target
 train_set = train_set_strat2.drop("median_house_value",axis=1)
+test_set = test_set_strat2.drop("median_house_value",axis=1)
 #save the target
 train_target = train_set_strat2["median_house_value"].copy()
-print train_set
+test_target = test_set_strat2["median_house_value"].copy()
 
 #pipeline 1.
 #Select features which are numerical and impute missing values by median
@@ -202,71 +208,93 @@ full_output = FullPipeline.fit_transform(train_set)
 pipe_LR = Pipeline([
     ('reg', LinearRegression())
 ])
-param_grid = [
+param_grid_LR = [
     {
         'reg': [LinearRegression()]
-    },
+    }
+]
+param_grid_DT = [
     {
         'reg': [DecisionTreeRegressor()],
         "reg__min_samples_split": [2, 10, 20],
         "reg__max_depth": [None, 2, 5, 10],
         "reg__min_samples_leaf": [1, 5, 10],
         "reg__max_leaf_nodes": [None, 5, 10, 20],
-    },
+    }
+]
+param_grid_RF = [
     {
         'reg': [RandomForestRegressor()],
         'reg__bootstrap': [True, False],
         'reg__n_estimators': [3, 10, 30],
         'reg__max_features': [2, 4, 6, 8]
-    }
+     }
 ]
 
-grid = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid,verbose=2)
-grid.fit(full_output,train_target)
+grid_LR = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_LR,scoring='neg_mean_squared_error')
+grid_LR.fit(full_output,train_target)
+grid_DT = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_DT,scoring='neg_mean_squared_error')
+grid_DT.fit(full_output,train_target)
+grid_RF = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_RF,scoring='neg_mean_squared_error')
+grid_RF.fit(full_output,train_target)
 
-#Lets start off by training a linear regression model
-linreg = LinearRegression()
-linreg.fit(full_output, train_target)
-predictions = linreg.predict(full_output)
-linmse = mean_squared_error(train_target, predictions) 
-linrmse = np.sqrt(linmse)
-print linrmse
-dectreereg =  DecisionTreeRegressor()
-dectreereg.fit(full_output, train_target)
-predictions2 = dectreereg.predict(full_output)
-dectreemse = mean_squared_error(train_target, predictions2) 
-dectreermse = np.sqrt(dectreemse)
-print dectreermse
+print_gridsearch_cv(grid_LR)
+print_gridsearch_cv(grid_DT)
+print_gridsearch_cv(grid_RF)
+
+#Best model is the RandomForest
+#predict the values from the test set and check the RMSE
+test_output = FullPipeline.transform(test_set)
+
+final_model = grid_RF.best_estimator_
+test_predictions = grid_RF.best_estimator_.predict(test_output)
+test_mse = mean_squared_error(test_predictions,test_target)
+test_rmse = np.sqrt(test_mse)
+print "Final RMSE: ",test_rmse
+
+# #Lets start off by training a linear regression model
+# linreg = LinearRegression()
+# linreg.fit(full_output, train_target)
+# predictions = linreg.predict(full_output)
+# linmse = mean_squared_error(train_target, predictions) 
+# linrmse = np.sqrt(linmse)
+# print linrmse
+# dectreereg =  DecisionTreeRegressor()
+# dectreereg.fit(full_output, train_target)
+# predictions2 = dectreereg.predict(full_output)
+# dectreemse = mean_squared_error(train_target, predictions2) 
+# dectreermse = np.sqrt(dectreemse)
+# print dectreermse
 
 
-#cross validation for the two models
-linscores = cross_val_score(linreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
-linrmse_scores = np.sqrt(-linscores)
+# #cross validation for the two models
+# linscores = cross_val_score(linreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+# linrmse_scores = np.sqrt(-linscores)
 
-print linrmse_scores
-print linrmse_scores.mean()
-print linrmse_scores.std()
-
-
-dectreescores = cross_val_score(dectreereg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
-dectreermse_scores = np.sqrt(-dectreescores)
-
-print dectreermse_scores
-print dectreermse_scores.mean()
-print dectreermse_scores.std()
+# print linrmse_scores
+# print linrmse_scores.mean()
+# print linrmse_scores.std()
 
 
-#let us try to not overfit as much and try a RandomForest regression
-rndforestreg =  RandomForestRegressor()
-rndforestreg.fit(full_output, train_target)
-predictions3 = rndforestreg.predict(full_output)
-rndforestmse = mean_squared_error(train_target, predictions3)
-rndforestrmse = np.sqrt(rndforestmse)
-print rndforestrmse
+# dectreescores = cross_val_score(dectreereg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+# dectreermse_scores = np.sqrt(-dectreescores)
 
-rndforestscores = cross_val_score(rndforestreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
-rndforestrmse_scores = np.sqrt(-rndforestscores)
+# print dectreermse_scores
+# print dectreermse_scores.mean()
+# print dectreermse_scores.std()
 
-print rndforestrmse_scores
-print rndforestrmse_scores.mean()
-print rndforestrmse_scores.std()
+
+# #let us try to not overfit as much and try a RandomForest regression
+# rndforestreg =  RandomForestRegressor()
+# rndforestreg.fit(full_output, train_target)
+# predictions3 = rndforestreg.predict(full_output)
+# rndforestmse = mean_squared_error(train_target, predictions3)
+# rndforestrmse = np.sqrt(rndforestmse)
+# print rndforestrmse
+
+# rndforestscores = cross_val_score(rndforestreg,full_output,train_target,scoring="neg_mean_squared_error",cv=10)
+# rndforestrmse_scores = np.sqrt(-rndforestscores)
+
+# print rndforestrmse_scores
+# print rndforestrmse_scores.mean()
+# print rndforestrmse_scores.std()
