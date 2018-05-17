@@ -182,49 +182,90 @@ def create_pipeline():
     FullPipeline = FeatureUnion(transformer_list=[
         ("num_pipeline", NumPipeline),
         ("cat_pipeline", CatPipeline)
-    ]) 
+    ])
+
     return FullPipeline
 
 def find_best_model_param(data=None,target=None):
-    pipe_LR = Pipeline([
-        ('reg', LinearRegression())
-    ])
-    param_grid_LR = [
-        {
-            'reg': [LinearRegression()]
-        }
-    ]
-    param_grid_DT = [
-        {
-            'reg': [DecisionTreeRegressor()],
-            "reg__min_samples_split": [2, 10, 20],
-            "reg__max_depth": [None, 2, 5, 10],
-            "reg__min_samples_leaf": [1, 5, 10],
-            "reg__max_leaf_nodes": [None, 5, 10, 20],
-        }
-    ]
-    param_grid_RF = [
-        {
-            'reg': [RandomForestRegressor()],
-            'reg__bootstrap': [True, False],
-            'reg__n_estimators': [3, 10, 30],
-            'reg__max_features': [2, 4, 6, 8]
-        }
-    ]
+    # pipe_LR = Pipeline([
+    #     ('reg', LinearRegression())
+    # ])
+    # param_grid_LR = [
+    #     {
+    #         'reg': [LinearRegression()]
+    #     }
+    # ]
+    # param_grid_DT = [
+    #     {
+    #         'reg': [DecisionTreeRegressor()],
+    #         "reg__min_samples_split": [2, 10, 20],
+    #         "reg__max_depth": [None, 2, 5, 10],
+    #         "reg__min_samples_leaf": [1, 5, 10],
+    #         "reg__max_leaf_nodes": [None, 5, 10, 20],
+    #     }
+    # ]
+    # param_grid_RF = [
+    #     {
+    #         'reg': [RandomForestRegressor()],
+    #         'reg__bootstrap': [True, False],
+    #         'reg__n_estimators': [3, 10, 30],
+    #         'reg__max_features': [2, 4, 6, 8]
+    #     }
+    # ]
     
-    grid_LR = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_LR,scoring='neg_mean_squared_error')
-    grid_LR.fit(data,target)
-    grid_DT = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_DT,scoring='neg_mean_squared_error')
-    grid_DT.fit(data,target)
-    grid_RF = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_RF,scoring='neg_mean_squared_error')
-    grid_RF.fit(data,target)
+    # grid_LR = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_LR,scoring='neg_mean_squared_error')
+    # grid_LR.fit(data,target)
+    # grid_DT = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_DT,scoring='neg_mean_squared_error')
+    # grid_DT.fit(data,target)
+    # grid_RF = GridSearchCV(pipe_LR, cv=5, n_jobs=1, param_grid=param_grid_RF,scoring='neg_mean_squared_error')
+    # grid_RF.fit(data,target)
 
-    print_gridsearch_cv(grid_LR)
-    print_gridsearch_cv(grid_DT)
-    print_gridsearch_cv(grid_RF)
+    # print_gridsearch_cv(grid_LR)
+    # print_gridsearch_cv(grid_DT)
+    # print_gridsearch_cv(grid_RF)
 
-    return grid_RF.best_estimator_
+    best_model = FindBestModel()
+    best_model.register_model_params(LinearRegression(),[{}],"Linear Regression Estimator")
+    best_model.register_model_params(DecisionTreeRegressor(),[{"min_samples_split": [2, 10, 20],
+                                                                "max_depth": [None, 2, 5, 10],"min_samples_leaf": [1, 5, 10],
+                                                                "max_leaf_nodes": [None, 5, 10, 20]}],"Decision Tree Regression Estimator")
+    best_model.register_model_params(RandomForestRegressor(),[{"bootstrap": [True, False],"n_estimators": [10, 50, 100, 500],
+                                                                "max_features": [2, 4, 6, 8]}],"Random Forest Regression Estimator")
+    best_estimator = best_model.evaluate_models(data,target)
+    return best_estimator
+    #return grid_RF.best_estimator_
 
+
+class FindBestModel:
+    def __init__(self):
+        self.models = []
+        self.params = []
+        self.names = []
+    def register_model_params(self,model,params,name):
+        self.models.append(model)
+        self.params.append(params)
+        self.names.append(name)
+    def evaluate_models(self,data,target):
+        best_rmse = np.finfo(np.float128)
+        best_model = None
+        best_params = None
+        model_results = []
+        for model,param in zip(self.models,self.params):
+            print model,param
+            model_results.append(self.run_model(data,target,model,param))
+        for param,score,best_estimator in model_results:
+            print param,np.sqrt(-score)
+            rmse=np.sqrt(-score)
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_model = best_estimator
+                best_params = param
+        return best_estimator
+    
+    def run_model(self,data,target,model,params):
+        results = GridSearchCV(model, params, cv=5, scoring="neg_mean_squared_error", n_jobs=1)
+        results.fit(data,target)
+        return [str(results.best_params_), results.best_score_, results.best_estimator_]
 
 if __name__=='__main__':
     #Specify download path and location where data is stored
